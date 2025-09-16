@@ -1,90 +1,79 @@
 from __future__ import annotations
-import os
-import re
+import os, re
 from pathlib import Path
 import streamlit as st
 from streamlit.components.v1 import html as html_component
 
-# -------------------- إعداد الصفحة + إخفاء واجهة ستريملايت --------------------
 st.set_page_config(page_title="Static HTML Viewer", layout="wide")
 
+# إزالة واجهة ستريملايت والحواف بالكامل
 st.markdown("""
 <style>
-/* اخفاء عناصر ستريملايت الافتراضية */
-#MainMenu {visibility: hidden;}
-header {visibility: hidden;}
-footer {visibility: hidden;}
-/* إزالة الهوامش نهائياً */
+#MainMenu, header, footer {visibility: hidden;}
 .block-container {padding: 0 !important; margin: 0 !important; max-width: 100% !important;}
-/* اخفاء الشريط الجانبي إن وُجد */
 [data-testid="stSidebar"] {display: none;}
-/* خلفية شفافة حتى تكون خلفية HTML هي الظاهرة */
 .stApp {background: transparent;}
 html, body {margin:0; padding:0;}
 </style>
 """, unsafe_allow_html=True)
 
-# -------------------- تحديد مسارات الملفات --------------------
-BASE_DIR = Path(__file__).resolve().parent  # أفضل طريقة لتحديد مجلد السكربت على أي منصة
-# لو عندك مسار معروف مسبقاً سيبه هنا، وإلا سنكتشفه تلقائياً
-PREFERRED_HTML_PATHS = [
-    BASE_DIR / "assets" / "index.html",
-    BASE_DIR / "index.html",
-]
-
-# السماح بتحديد الملف بالبيئة (مفيد على الكلاود)
+BASE_DIR = Path(__file__).resolve().parent
+# اسم ملف HTML من متغير بيئة (اختياري)
 env_html = os.environ.get("HTML_FILE")
+
+# مسارات مفضلة ثم اكتشاف تلقائي
+candidates = []
 if env_html:
-    PREFERRED_HTML_PATHS.insert(0, Path(env_html))
+    candidates.append(Path(env_html))
+candidates += [BASE_DIR / "assets" / "index.html", BASE_DIR / "index.html"]
 
-# وظيفة صغيرة تبحث عن أول ملف HTML متاح لو المسارات الافتراضية مش موجودة
 def find_first_html(root: Path) -> Path | None:
-    # أولوية: أي index.html في أي مكان، ثم أي .html عام
-    index_candidates = list(root.rglob("index.html"))
-    if index_candidates:
-        return index_candidates[0]
-    all_html = list(root.rglob("*.html"))
-    if all_html:
-        return all_html[0]
-    return None
+    idx = list(root.rglob("index.html"))
+    if idx: return idx[0]
+    any_html = list(root.rglob("*.html"))
+    return any_html[0] if any_html else None
 
-html_path: Path | None = None
-for p in PREFERRED_HTML_PATHS:
-    if p.exists():
-        html_path = p
-        break
-
-if html_path is None:
-    html_path = find_first_html(BASE_DIR)
-
-if html_path is None or not html_path.exists():
-    st.error("⚠️ لم يتم العثور على أي ملف HTML داخل المشروع. "
-             "أضف ملفًا مثل `assets/index.html` أو `index.html`، "
-             "أو ضع اسم الملف في متغيّر البيئة `HTML_FILE`.")
+html_path = next((p for p in candidates if p.exists()), None) or find_first_html(BASE_DIR)
+if not html_path or not html_path.exists():
+    st.error("⚠️ لم يتم العثور على أي ملف HTML داخل المشروع. أضف `assets/index.html` أو `index.html` أو عرّف `HTML_FILE`.")
     st.stop()
 
-# -------------------- قراءة محتوى الـ HTML --------------------
 page = html_path.read_text(encoding="utf-8")
 
-# -------------------- ضبط <base href> لحل المسارات النسبية --------------------
-# لو ملفك بيستورد CSS/JS/صور بمسارات نسبية، هنضبط base href تلقائياً.
-# الافتراضي: اجعله نسبةً لمجلد الملف نفسه داخل التطبيق.
-def ensure_base_href(html_text: str, base_url: str) -> str:
-    if re.search(r"<base\\s+href=", html_text, flags=re.IGNORECASE):
-        return html_text  # لو موجود سيبه
-    if re.search(r"<head[^>]*>", html_text, flags=re.IGNORECASE):
-        return re.sub(r"(<head[^>]*>)", rf"\\1\n<base href=\"{base_url}\">",
-                      html_text, count=1, flags=re.IGNORECASE)
-    # لو مفيش <head>، أضفه بسرعة
-    return f"<head><base href=\"{base_url}\"></head>{html_text}"
+# ---------- إعادة كتابة مسارات الأصول فقط (بدون كسر الروابط الداخلية #) ----------
+# عدّل RAW_BASE لو ريبوك/الفرع مختلفين
+RAW_BASE = os.environ.get("RAW_REPO_BASE", "https://raw.githubusercontent.com/ahmedMS-ai/16-9/main/").rstrip("/") + "/"
+# المسار داخل الريبو بالنسبة لملف HTML
+rel_dir_in_repo = ""
+try:
+    rel_dir_in_repo = html_path.relative_to(BASE_DIR).parent.as_posix().strip("/")
+except Exception:
+    pass
+if rel_dir_in_repo:
+    RAW_BASE = f"{RAW_BASE}{rel_dir_in_repo}/"
 
-# نبني base كنسبة لمجلد الملف، بحيث المسارات النسبية تشتغل داخل iframe
-# مثال: لو html_path = /mount/src/16-9/assets/index.html -> base = file:///mount/src/16-9/assets/
-base_for_relative = (html_path.parent.as_uri() + "/")
-page = ensure_base_href(page, base_for_relative)
+def rewrite_urls(html_text: str, raw_base: str) -> str:
+    # استبدل src/href النسبية فقط (لا تبدأ بـ http, https, #, mailto, tel, data:)
+    def repl_attr(match):
+        attr = match.group(1)    # src أو href
+        quote = match.group(2)   # ' أو "
+        url = match.group(3).strip()
 
-# -------------------- غلاف iframe فل-بليد + ضبط الارتفاع --------------------
-FRAME_WRAPPER = f"""
+        lowered = url.lower()
+        if lowered.startswith(("http://", "https://", "#", "mailto:", "tel:", "data:")):
+            return match.group(0)  # اتركه كما هو
+
+        # اجعلها مطلقة على RAW_BASE
+        new_url = raw_base + url.lstrip("./")
+        return f'{attr}={quote}{new_url}{quote}'
+
+    pattern = r'(?:\s)(src|href)\s*=\s*(["\'])(.*?)\2'
+    return re.sub(pattern, repl_attr, html_text, flags=re.IGNORECASE)
+
+page = rewrite_urls(page, RAW_BASE)
+
+# ---------- غلاف يعرض الصفحة فل-بليد + تفعيل الروابط الداخلية ----------
+FRAME = f"""
 <!doctype html>
 <html>
 <head>
@@ -92,35 +81,54 @@ FRAME_WRAPPER = f"""
 <style>
   html, body {{
     height: 100%;
-    margin: 0;
-    padding: 0;
+    margin: 0; padding: 0;
   }}
   .wrapper {{
-    position: fixed;
-    inset: 0;
-    overflow: auto; /* سكرول واحد فقط داخل الإطار */
-    border: none;
-    margin: 0;
-    padding: 0;
+    position: fixed; inset: 0;
+    overflow: auto;                 /* سكرول واحد داخل الإطار */
+    margin: 0; padding: 0; border: 0;
+    scroll-behavior: smooth;        /* سكرول ناعم للهاش */
   }}
+  /* لو عندك هيدر ثابت داخل الصفحة، اضبط المسافة هنا */
+  .wrapper {{ scroll-padding-top: 80px; }}  /* عدّل 80px حسب ارتفاع الهيدر عندك */
+  /* بدلاً من ذلك يمكن استخدام scroll-margin-top على كل قسم هدف */
+  [id] {{ scroll-margin-top: 80px; }}
 </style>
 </head>
 <body>
-  <div class="wrapper">
+  <div class="wrapper" id="wrapper">
     {page}
   </div>
+
   <script>
-    function setParentHeight() {{
+    // اضبط ارتفاع iframe ليملىء الشاشة
+    function setParentHeight(){{
       const h = window.innerHeight || document.documentElement.clientHeight;
       window.parent.postMessage({{ isStreamlitMessage: true, type: "streamlit:setFrameHeight", height: h }}, "*");
     }}
     setParentHeight();
     window.addEventListener("resize", setParentHeight);
+
+    // فعّل الروابط الداخلية داخل نفس الوثيقة حتى لو فيه base أو إعادة كتابة
+    const wrapper = document.getElementById('wrapper');
+    document.querySelectorAll('a[href^="#"]').forEach(function(a){{
+      a.addEventListener('click', function(e){{
+        const hash = this.getAttribute('href');
+        const targetId = decodeURIComponent(hash.slice(1));
+        const target = document.getElementById(targetId);
+        if (target) {{
+          e.preventDefault();
+          target.scrollIntoView({{behavior:'smooth', block:'start'}});
+          // حدّث الهاش في شريط العنوان داخل الإطار (اختياري)
+          if (history && history.pushState) {{
+            history.pushState(null, "", hash);
+          }}
+        }}
+      }});
+    }});
   </script>
 </body>
 </html>
 """
 
-# -------------------- العرض --------------------
-# ملاحظة: الارتفاع الأولي 800، وسنضبطه فوريًا عبر postMessage
-html_component(FRAME_WRAPPER, height=800, scrolling=False)
+html_component(FRAME, height=800, scrolling=False)
