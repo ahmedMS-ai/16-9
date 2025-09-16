@@ -4,9 +4,9 @@ from pathlib import Path
 import streamlit as st
 from streamlit.components.v1 import html as html_component
 
-st.set_page_config(page_title="Static HTML Viewer", layout="wide")
+st.set_page_config(page_title="Static HTML Full-Bleed", layout="wide")
 
-# إزالة واجهة ستريملايت والحواف بالكامل
+# إزالة واجهة ستريمليت والحواف
 st.markdown("""
 <style>
 #MainMenu, header, footer {visibility: hidden;}
@@ -18,32 +18,35 @@ html, body {margin:0; padding:0;}
 """, unsafe_allow_html=True)
 
 BASE_DIR = Path(__file__).resolve().parent
-# اسم ملف HTML من متغير بيئة (اختياري)
-env_html = os.environ.get("HTML_FILE")
-
-# مسارات مفضلة ثم اكتشاف تلقائي
-candidates = []
-if env_html:
-    candidates.append(Path(env_html))
-candidates += [BASE_DIR / "assets" / "index.html", BASE_DIR / "index.html"]
+ENV_HTML = os.environ.get("HTML_FILE")
 
 def find_first_html(root: Path) -> Path | None:
+    for candidate in [root / "assets" / "index.html", root / "index.html"]:
+        if candidate.exists():
+            return candidate
     idx = list(root.rglob("index.html"))
     if idx: return idx[0]
-    any_html = list(root.rglob("*.html"))
-    return any_html[0] if any_html else None
+    htmls = list(root.rglob("*.html"))
+    return htmls[0] if htmls else None
 
-html_path = next((p for p in candidates if p.exists()), None) or find_first_html(BASE_DIR)
+html_path = Path(ENV_HTML) if ENV_HTML else find_first_html(BASE_DIR)
 if not html_path or not html_path.exists():
-    st.error("⚠️ لم يتم العثور على أي ملف HTML داخل المشروع. أضف `assets/index.html` أو `index.html` أو عرّف `HTML_FILE`.")
+    st.error("⚠️ لم يتم العثور على أي ملف HTML. ضع `assets/index.html` أو `index.html` أو عرّف `HTML_FILE`.")
     st.stop()
 
 page = html_path.read_text(encoding="utf-8")
 
-# ---------- إعادة كتابة مسارات الأصول فقط (بدون كسر الروابط الداخلية #) ----------
-# عدّل RAW_BASE لو ريبوك/الفرع مختلفين
-RAW_BASE = os.environ.get("RAW_REPO_BASE", "https://raw.githubusercontent.com/ahmedMS-ai/16-9/main/").rstrip("/") + "/"
-# المسار داخل الريبو بالنسبة لملف HTML
+# 1) إزالة أي <base ...> لتجنّب كسر الروابط الداخلية (#)
+page = re.sub(r"<base\\b[^>]*>", "", page, flags=re.IGNORECASE)
+
+# 2) إعادة كتابة مسارات الأصول النسبية فقط (src/href) بدون التأثير على الروابط الداخلية
+#    - لا نلمس: http(s):, #, mailto:, tel:, data:
+RAW_BASE = os.environ.get(
+    "RAW_REPO_BASE",
+    "https://raw.githubusercontent.com/ahmedMS-ai/16-9/main/"
+).rstrip("/") + "/"
+
+# احسب المسار النسبي داخل الريبو بالنسبة لمكان ملف HTML
 rel_dir_in_repo = ""
 try:
     rel_dir_in_repo = html_path.relative_to(BASE_DIR).parent.as_posix().strip("/")
@@ -52,27 +55,22 @@ except Exception:
 if rel_dir_in_repo:
     RAW_BASE = f"{RAW_BASE}{rel_dir_in_repo}/"
 
-def rewrite_urls(html_text: str, raw_base: str) -> str:
-    # استبدل src/href النسبية فقط (لا تبدأ بـ http, https, #, mailto, tel, data:)
-    def repl_attr(match):
-        attr = match.group(1)    # src أو href
-        quote = match.group(2)   # ' أو "
-        url = match.group(3).strip()
-
-        lowered = url.lower()
-        if lowered.startswith(("http://", "https://", "#", "mailto:", "tel:", "data:")):
-            return match.group(0)  # اتركه كما هو
-
-        # اجعلها مطلقة على RAW_BASE
+def rewrite_asset_urls(html_text: str, raw_base: str) -> str:
+    def repl(m):
+        attr, quote, url = m.group(1), m.group(2), m.group(3).strip()
+        low = url.lower()
+        if low.startswith(("http://", "https://", "#", "mailto:", "tel:", "data:")):
+            return m.group(0)
+        # أمثلة نسبية: ./img.png , css/style.css , index.html (لو ملف فرعي)
+        # نخليها مطلقة على RAW_BASE حتى لا يحصل تنقّل خارج الإطار
         new_url = raw_base + url.lstrip("./")
         return f'{attr}={quote}{new_url}{quote}'
+    return re.sub(r'(\\s)(src|href)\\s*=\\s*(["\\\'])(.*?)\\3',
+                  lambda m: m.group(1) + repl(m), html_text, flags=re.IGNORECASE)
 
-    pattern = r'(?:\s)(src|href)\s*=\s*(["\'])(.*?)\2'
-    return re.sub(pattern, repl_attr, html_text, flags=re.IGNORECASE)
+page = rewrite_asset_urls(page, RAW_BASE)
 
-page = rewrite_urls(page, RAW_BASE)
-
-# ---------- غلاف يعرض الصفحة فل-بليد + تفعيل الروابط الداخلية ----------
+# 3) غلاف فل-بليد + تفعيل الروابط الداخلية بأي صيغة (#id أو index.html#id)
 FRAME = f"""
 <!doctype html>
 <html>
@@ -87,12 +85,10 @@ FRAME = f"""
     position: fixed; inset: 0;
     overflow: auto;                 /* سكرول واحد داخل الإطار */
     margin: 0; padding: 0; border: 0;
-    scroll-behavior: smooth;        /* سكرول ناعم للهاش */
+    scroll-behavior: smooth;        /* سكرول ناعم */
+    scroll-padding-top: 80px;       /* اضبطها حسب ارتفاع الهيدر داخل صفحتك */
   }}
-  /* لو عندك هيدر ثابت داخل الصفحة، اضبط المسافة هنا */
-  .wrapper {{ scroll-padding-top: 80px; }}  /* عدّل 80px حسب ارتفاع الهيدر عندك */
-  /* بدلاً من ذلك يمكن استخدام scroll-margin-top على كل قسم هدف */
-  [id] {{ scroll-margin-top: 80px; }}
+  [id] {{ scroll-margin-top: 80px; }} /* لتفادي تغطية الهيدر للعنصر الهدف */
 </style>
 </head>
 <body>
@@ -101,7 +97,7 @@ FRAME = f"""
   </div>
 
   <script>
-    // اضبط ارتفاع iframe ليملىء الشاشة
+    // اضبط ارتفاع iframe
     function setParentHeight(){{
       const h = window.innerHeight || document.documentElement.clientHeight;
       window.parent.postMessage({{ isStreamlitMessage: true, type: "streamlit:setFrameHeight", height: h }}, "*");
@@ -109,23 +105,55 @@ FRAME = f"""
     setParentHeight();
     window.addEventListener("resize", setParentHeight);
 
-    // فعّل الروابط الداخلية داخل نفس الوثيقة حتى لو فيه base أو إعادة كتابة
-    const wrapper = document.getElementById('wrapper');
-    document.querySelectorAll('a[href^="#"]').forEach(function(a){{
-      a.addEventListener('click', function(e){{
-        const hash = this.getAttribute('href');
-        const targetId = decodeURIComponent(hash.slice(1));
-        const target = document.getElementById(targetId);
-        if (target) {{
-          e.preventDefault();
-          target.scrollIntoView({{behavior:'smooth', block:'start'}});
-          // حدّث الهاش في شريط العنوان داخل الإطار (اختياري)
-          if (history && history.pushState) {{
-            history.pushState(null, "", hash);
-          }}
+    // مساعد: هل الرابط داخلي لنفس الصفحة؟
+    function isSameDocLink(href) {{
+      if (!href) return false;
+      const l = href.toLowerCase();
+      if (l.startsWith("#")) return true;
+      // صيغ مثل: index.html#section أو ./index.html#section
+      if (l.endsWith(".html") || l.includes(".html#")) {{
+        // لو بيشير لنفس الملف، اعتبره داخلي
+        try {{
+          const a = document.createElement('a'); a.href = href;
+          // في srcdoc، pathname بيكون فارغ؛ نستخدم فقط وجود hash
+          return !!a.hash;
+        }} catch(e){{}}
+      }}
+      return false;
+    }}
+
+    // فعّل التنقّل الداخلي بالسكرول بدل تغيير الصفحة
+    document.addEventListener('click', function(e) {{
+      const a = e.target.closest('a');
+      if (!a) return;
+
+      const href = a.getAttribute('href');
+      if (!isSameDocLink(href)) return;
+
+      // امنع التنقل الافتراضي (الذي يسبب شاشة بيضاء أحياناً)
+      e.preventDefault();
+
+      // استخرج الـ id الهدف من الهاش
+      let hash = '';
+      if (href.startsWith('#')) {{
+        hash = href;
+      }} else {{
+        // مثل index.html#about -> #about
+        const idx = href.indexOf('#');
+        hash = idx >= 0 ? href.slice(idx) : '';
+      }}
+      const id = decodeURIComponent(hash.replace('#',''));
+      if (!id) return;
+
+      const target = document.getElementById(id);
+      if (target) {{
+        target.scrollIntoView({{ behavior: 'smooth', block: 'start' }});
+        // اختياري: حدث الهاش داخل الإطار
+        if (history && history.pushState) {{
+          history.pushState(null, "", "#" + id);
         }}
-      }});
-    }});
+      }}
+    }}, true);
   </script>
 </body>
 </html>
