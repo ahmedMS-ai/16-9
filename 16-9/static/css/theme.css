@@ -1,0 +1,125 @@
+
+/* static/css/theme.css */
+:root {
+  --bg: #0f1115;
+  --text: #eaeef2;
+  --muted: #a7b0be;
+  --primary: #3b82f6;
+  --accent: #22d3ee;
+  --section-pad: 6rem;
+  --maxw: 1200px;
+}
+html, body {
+  margin: 0;
+  padding: 0;
+  height: 100%;
+  background: var(--bg);
+  color: var(--text);
+  scroll-behavior: smooth;
+  scroll-padding-top: 84px; /* offset for fixed header */
+  font-family: ui-sans-serif, -apple-system, Segoe UI, Roboto, Helvetica Neue, Arial, Noto Sans, "Apple Color Emoji", "Segoe UI Emoji";
+}
+/* Hide Streamlit chrome & spacing */
+[data-testid="stToolbar"], .stActionButton, [data-testid="stHeader"], #MainMenu, footer, header { display: none !important; }
+section.main > div.block-container {
+  padding: 0 !important;
+  max-width: 100% !important;
+}
+.stApp, .main, .block-container {
+  padding: 0 !important;
+  margin: 0 !important;
+}
+/* Fixed header/nav */
+.site-header {
+  position: fixed;
+  top: 0; left: 0; right: 0;
+  height: 72px;
+  backdrop-filter: blur(8px);
+  background: rgba(10, 12, 18, 0.6);
+  border-bottom: 1px solid rgba(255,255,255,0.06);
+  z-index: 9999;
+}
+.nav-inner {
+  margin: 0 auto;
+  max-width: var(--maxw);
+  height: 72px;
+  display: flex; align-items: center; justify-content: space-between;
+  padding: 0 24px;
+}
+.brand {
+  font-weight: 700; letter-spacing: .2px; font-size: 1.1rem;
+}
+.nav a {
+  color: var(--text); text-decoration: none; margin-left: 20px; opacity:.9;
+}
+.nav a:hover { opacity:1 }
+/* Hero */
+.hero {
+  position: relative;
+  width: 100vw;
+  min-height: 88vh;
+  display: grid;
+  place-items: center;
+  overflow: clip;
+}
+.hero .inner {
+  display: grid; gap: 16px; text-align: center; padding: 120px 24px 64px;
+}
+.hero h1 { font-size: clamp(32px, 6vw, 56px); margin: 0; }
+.hero p  { font-size: clamp(16px, 2vw, 20px); color: var(--muted); margin: 0 0 12px; }
+.hero .cta-wrap { display:flex; gap:12px; justify-content:center; margin-top: 12px; }
+.btn {
+  display:inline-block; padding: 12px 18px; border-radius: 10px; border: 1px solid rgba(255,255,255,.12);
+  text-decoration: none; color: var(--text);
+}
+.btn.primary { background: var(--primary); border-color: transparent; }
+.hero-bg {
+  position:absolute; inset:0;
+  background: radial-gradient(1200px 600px at 50% -10%, rgba(59,130,246,.35), transparent 60%);
+  pointer-events: none;
+}
+.hero-image {
+  width: min(1100px, 94vw);
+  border-radius: 16px;
+  box-shadow: 0 30px 70px rgba(0,0,0,.45);
+  overflow: hidden; margin: 16px auto 0;
+  border: 1px solid rgba(255,255,255,.06);
+}
+.hero-image img { display:block; width:100%; height:auto; }
+/* Sections */
+.section { padding: var(--section-pad) 24px; }
+.section .wrap { max-width: var(--maxw); margin: 0 auto; }
+.section h2 { font-size: clamp(28px,4vw,40px); margin: 0 0 12px; }
+.section p.lead { color: var(--muted); margin: 0 0 28px; }
+.features-grid {
+  display: grid; grid-template-columns: repeat(3, 1fr); gap: 18px; margin-top: 22px;
+}
+.feature-card {
+  border: 1px solid rgba(255,255,255,.08); border-radius: 14px; padding: 18px; background: rgba(255,255,255,.03);
+}
+.feature-card h3 { margin: 8px 0; font-size: 18px; }
+.feature-card p { margin: 0; color: var(--muted); }
+.feature-card img { width: 100%; border-radius: 10px; margin-bottom: 10px; }
+/* Gallery */
+.gallery-grid {
+  display: grid; grid-template-columns: repeat(4, 1fr); gap: 10px; margin-top: 10px;
+}
+.gallery-grid img {
+  width: 100%; height: 100%; object-fit: cover; border-radius: 10px; border: 1px solid rgba(255,255,255,.06);
+}
+/* Footer */
+.footer {
+  border-top: 1px solid rgba(255,255,255,.08);
+  padding: 28px 24px; color: var(--muted);
+}
+.footer .wrap { max-width: var(--maxw); margin: 0 auto; display:flex; align-items:center; justify-content:space-between; gap:16px; }
+/* Responsive */
+@media (max-width: 1024px) {
+  .features-grid { grid-template-columns: repeat(2, 1fr); }
+  .gallery-grid  { grid-template-columns: repeat(3, 1fr); }
+}
+@media (max-width: 720px) {
+  .features-grid { grid-template-columns: 1fr; }
+  .gallery-grid  { grid-template-columns: repeat(2, 1fr); }
+  .nav a { margin-left: 12px; }
+}
