@@ -1,0 +1,16 @@
+
+[client]
+showSidebarNavigation = false
+toolbarMode = "minimal"
+
+[server]
+enableCORS = false
+headless = true
+maxUploadSize = 200
+
+[browser]
+gatherUsageStats = false
+
+[theme]
+base="dark"
+primaryColor="#3b82f6"
